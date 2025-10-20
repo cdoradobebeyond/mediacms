@@ -71,6 +71,10 @@ urlpatterns = [
         views.MediaActions.as_view(),
     ),
     re_path(
+        rf"^api/v1/media/{friendly_token}/purchase$",
+        views.MediaPurchaseView.as_view(),
+    ),
+    re_path(
         rf"^api/v1/media/{friendly_token}/chapters$",
         views.video_chapters,
     ),
@@ -79,6 +83,10 @@ urlpatterns = [
         views.trim_video,
     ),
     re_path(r"^api/v1/categories$", views.CategoryList.as_view()),
+    re_path(
+        r"^api/v1/categories/(?P<category_uid>[\w-]+)/purchase$",
+        views.CategoryPurchaseView.as_view(),
+    ),
     re_path(r"^api/v1/tags$", views.TagList.as_view()),
     re_path(r"^api/v1/comments$", views.CommentList.as_view()),
     re_path(

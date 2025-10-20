@@ -1,12 +1,13 @@
 # Import all views for backward compatibility
 
 from .auth import custom_login_view, saml_metadata  # noqa: F401
-from .categories import CategoryList, TagList  # noqa: F401
+from .categories import CategoryList, CategoryPurchaseView, TagList  # noqa: F401
 from .comments import CommentDetail, CommentList  # noqa: F401
 from .encoding import EncodeProfileList, EncodingDetail  # noqa: F401
 from .media import MediaActions  # noqa: F401
 from .media import MediaBulkUserActions  # noqa: F401
 from .media import MediaDetail  # noqa: F401
+from .media import MediaPurchaseView  # noqa: F401
 from .media import MediaList  # noqa: F401
 from .media import MediaSearch  # noqa: F401
 from .pages import about  # noqa: F401
