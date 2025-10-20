@@ -4,12 +4,14 @@ import logging
 import os
 import random
 import uuid
+from decimal import Decimal
 
 import m3u8
 from django.conf import settings
 from django.contrib.postgres.indexes import GinIndex
 from django.contrib.postgres.search import SearchVectorField
 from django.core.files import File
+from django.core.validators import MinValueValidator
 from django.db import models
 from django.db.models import Func, Value
 from django.db.models.signals import m2m_changed, post_delete, post_save, pre_delete
@@ -112,6 +114,25 @@ class Media(models.Model):
         max_length=500,
         blank=True,
         help_text="preview gif for videos, path in filesystem",
+    )
+
+    requires_payment = models.BooleanField(
+        default=False,
+        help_text="Whether viewing this media requires payment",
+    )
+
+    price = models.DecimalField(
+        max_digits=8,
+        decimal_places=2,
+        default=Decimal("0.00"),
+        validators=[MinValueValidator(Decimal("0.00"))],
+        help_text="Price for individual access to this media",
+    )
+
+    currency = models.CharField(
+        max_length=3,
+        default="USD",
+        help_text="Currency used for the media price",
     )
 
     poster = ProcessedImageField(
@@ -727,7 +748,16 @@ class Media(models.Model):
 
         ret = []
         for cat in self.category.all():
-            ret.append({"title": cat.title, "url": cat.get_absolute_url()})
+            ret.append(
+                {
+                    "title": cat.title,
+                    "url": cat.get_absolute_url(),
+                    "uid": cat.uid,
+                    "requires_payment": cat.requires_payment,
+                    "price": str(cat.price),
+                    "currency": cat.currency,
+                }
+            )
         return ret
 
     @property
@@ -803,6 +833,53 @@ class Media(models.Model):
                 },
             )
         return items
+
+    @property
+    def payment_required(self):
+        if self.requires_payment:
+            return True
+        return self.category.filter(requires_payment=True).exists()
+
+    @property
+    def effective_price(self):
+        if self.requires_payment:
+            return self.price
+        category_prices = [
+            price
+            for price in self.category.filter(requires_payment=True).values_list("price", flat=True)
+            if price is not None
+        ]
+        if category_prices:
+            return min(category_prices)
+        return Decimal("0.00")
+
+    @property
+    def effective_currency(self):
+        if self.requires_payment:
+            return self.currency
+        category = self.category.filter(requires_payment=True).first()
+        if category:
+            return category.currency
+        return self.currency
+
+    def requires_payment_for_user(self, user):
+        if not self.payment_required:
+            return False
+
+        if user and getattr(user, "is_authenticated", False):
+            if user == self.user or user.is_superuser or getattr(user, "is_editor", False) or getattr(
+                user, "is_manager", False
+            ):
+                return False
+
+            has_payment_method = getattr(user, "has_paid_access_to_media", None)
+            if callable(has_payment_method) and user.has_paid_access_to_media(self):
+                return False
+
+        return True
+
+    def user_has_access(self, user):
+        return not self.requires_payment_for_user(user)
 
     @property
     def subtitles_info(self):

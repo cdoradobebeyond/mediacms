@@ -33,7 +33,7 @@ from ..methods import (
     show_related_media,
     update_user_ratings,
 )
-from ..models import EncodeProfile, Media, MediaPermission, Playlist, PlaylistMedia
+from ..models import EncodeProfile, Media, MediaPermission, MediaPurchase, Playlist, PlaylistMedia
 from ..serializers import MediaSearchSerializer, MediaSerializer, SingleMediaSerializer
 from ..stop_words import STOP_WORDS
 from ..tasks import save_user_action
@@ -374,6 +374,16 @@ class MediaDetail(APIView):
                         {"detail": "media is private"},
                         status=status.HTTP_401_UNAUTHORIZED,
                     )
+            if media.requires_payment_for_user(self.request.user):
+                return Response(
+                    {
+                        "detail": "payment required",
+                        "payment_required": True,
+                        "effective_price": format(media.effective_price, ".2f"),
+                        "currency": media.effective_currency,
+                    },
+                    status=status.HTTP_402_PAYMENT_REQUIRED,
+                )
             return media
         except PermissionDenied:
             return Response({"detail": "bad permissions"}, status=status.HTTP_401_UNAUTHORIZED)
@@ -416,6 +426,64 @@ class MediaDetail(APIView):
 
         ret["related_media"] = related_media
         return Response(ret)
+
+
+class MediaPurchaseView(APIView):
+    """Registers a purchase granting access to a media item."""
+
+    permission_classes = (permissions.IsAuthenticated,)
+
+    @swagger_auto_schema(
+        manual_parameters=[
+            openapi.Parameter(
+                name='friendly_token',
+                type=openapi.TYPE_STRING,
+                in_=openapi.IN_PATH,
+                description='Unique identifier of the media to purchase',
+                required=True,
+            )
+        ],
+        tags=['Media'],
+        operation_summary='Purchase media access',
+        operation_description='Creates a purchase that grants the authenticated user access to the media item',
+        responses={200: 'media already unlocked', 201: 'media unlocked', 400: 'bad request'},
+    )
+    def post(self, request, friendly_token, format=None):
+        media = get_object_or_404(Media.objects.prefetch_related('category'), friendly_token=friendly_token)
+
+        if not media.payment_required:
+            return Response(
+                {"detail": "media does not require payment", "payment_required": False},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        purchase, created = MediaPurchase.objects.get_or_create(
+            user=request.user,
+            media=media,
+            defaults={"amount": media.effective_price, "currency": media.effective_currency},
+        )
+
+        if not created and (
+            purchase.amount != media.effective_price or purchase.currency != media.effective_currency
+        ):
+            purchase.amount = media.effective_price
+            purchase.currency = media.effective_currency
+            purchase.save(update_fields=["amount", "currency"])
+
+        status_code = status.HTTP_201_CREATED if created else status.HTTP_200_OK
+        detail = "media unlocked" if created else "media already unlocked"
+
+        return Response(
+            {
+                "detail": detail,
+                "purchase_id": purchase.id,
+                "payment_required": False,
+                "effective_price": format(media.effective_price, ".2f"),
+                "effective_currency": media.effective_currency,
+                "user_has_access": request.user.has_paid_access_to_media(media),
+            },
+            status=status_code,
+        )
 
     @swagger_auto_schema(
         manual_parameters=[

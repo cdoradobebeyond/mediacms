@@ -1,3 +1,6 @@
+from decimal import Decimal
+
+from django.core.validators import MinValueValidator
 from django.db import models
 from django.urls import reverse
 from django.utils.html import strip_tags
@@ -45,6 +48,25 @@ class Category(models.Model):
         related_name='categories',
         help_text='If category is related with a specific Identity Provider',
         verbose_name='IDP Config Name',
+    )
+
+    requires_payment = models.BooleanField(
+        default=False,
+        help_text="Whether access to this category requires payment",
+    )
+
+    price = models.DecimalField(
+        max_digits=8,
+        decimal_places=2,
+        default=Decimal("0.00"),
+        validators=[MinValueValidator(Decimal("0.00"))],
+        help_text="Price required to unlock the full category",
+    )
+
+    currency = models.CharField(
+        max_length=3,
+        default="USD",
+        help_text="Currency used for the category price",
     )
 
     def __str__(self):
@@ -103,6 +125,29 @@ class Category(models.Model):
         for item in strip_text_items:
             setattr(self, item, strip_tags(getattr(self, item, None)))
         super(Category, self).save(*args, **kwargs)
+
+    @property
+    def payment_required(self):
+        return self.requires_payment
+
+    def requires_payment_for_user(self, user):
+        if not self.payment_required:
+            return False
+
+        if user and getattr(user, "is_authenticated", False):
+            if user == self.user or user.is_superuser or getattr(user, "is_editor", False) or getattr(
+                user, "is_manager", False
+            ):
+                return False
+
+            has_payment_method = getattr(user, "has_paid_access_to_category", None)
+            if callable(has_payment_method) and user.has_paid_access_to_category(self):
+                return False
+
+        return True
+
+    def user_has_access(self, user):
+        return not self.requires_payment_for_user(user)
 
 
 class Tag(models.Model):

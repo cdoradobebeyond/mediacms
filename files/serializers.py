@@ -15,6 +15,10 @@ class MediaSerializer(serializers.ModelSerializer):
     thumbnail_url = serializers.SerializerMethodField()
     author_profile = serializers.SerializerMethodField()
     author_thumbnail = serializers.SerializerMethodField()
+    payment_required = serializers.SerializerMethodField()
+    effective_price = serializers.SerializerMethodField()
+    user_has_access = serializers.SerializerMethodField()
+    effective_currency = serializers.SerializerMethodField()
 
     def get_url(self, obj):
         return self.context["request"].build_absolute_uri(obj.get_absolute_url())
@@ -33,6 +37,20 @@ class MediaSerializer(serializers.ModelSerializer):
 
     def get_author_thumbnail(self, obj):
         return self.context["request"].build_absolute_uri(obj.author_thumbnail())
+
+    def get_payment_required(self, obj):
+        return obj.payment_required
+
+    def get_effective_price(self, obj):
+        return format(obj.effective_price, ".2f")
+
+    def get_user_has_access(self, obj):
+        request = self.context.get("request")
+        user = request.user if request else None
+        return obj.user_has_access(user)
+
+    def get_effective_currency(self, obj):
+        return obj.effective_currency
 
     class Meta:
         model = Media
@@ -70,6 +88,13 @@ class MediaSerializer(serializers.ModelSerializer):
             "author_name",
             "author_profile",
             "author_thumbnail",
+            "requires_payment",
+            "price",
+            "currency",
+            "payment_required",
+            "effective_price",
+            "effective_currency",
+            "user_has_access",
             "encoding_status",
             "views",
             "likes",
@@ -101,9 +126,27 @@ class MediaSerializer(serializers.ModelSerializer):
 class SingleMediaSerializer(serializers.ModelSerializer):
     user = serializers.ReadOnlyField(source="user.username")
     url = serializers.SerializerMethodField()
+    payment_required = serializers.SerializerMethodField()
+    effective_price = serializers.SerializerMethodField()
+    user_has_access = serializers.SerializerMethodField()
+    effective_currency = serializers.SerializerMethodField()
 
     def get_url(self, obj):
         return self.context["request"].build_absolute_uri(obj.get_absolute_url())
+
+    def get_payment_required(self, obj):
+        return obj.payment_required
+
+    def get_effective_price(self, obj):
+        return format(obj.effective_price, ".2f")
+
+    def get_user_has_access(self, obj):
+        request = self.context.get("request")
+        user = request.user if request else None
+        return obj.user_has_access(user)
+
+    def get_effective_currency(self, obj):
+        return obj.effective_currency
 
     class Meta:
         model = Media
@@ -144,6 +187,13 @@ class SingleMediaSerializer(serializers.ModelSerializer):
             "author_profile",
             "author_thumbnail",
             "encodings_info",
+            "requires_payment",
+            "price",
+            "currency",
+            "payment_required",
+            "effective_price",
+            "effective_currency",
+            "user_has_access",
             "encoding_status",
             "views",
             "likes",
@@ -207,17 +257,33 @@ class EncodeProfileSerializer(serializers.ModelSerializer):
 
 class CategorySerializer(serializers.ModelSerializer):
     user = serializers.ReadOnlyField(source="user.username")
+    payment_required = serializers.SerializerMethodField()
+    user_has_access = serializers.SerializerMethodField()
 
     class Meta:
         model = Category
         fields = (
+            "uid",
             "title",
             "description",
             "is_global",
             "media_count",
             "user",
             "thumbnail_url",
+            "requires_payment",
+            "price",
+            "currency",
+            "payment_required",
+            "user_has_access",
         )
+
+    def get_payment_required(self, obj):
+        return obj.payment_required
+
+    def get_user_has_access(self, obj):
+        request = self.context.get("request")
+        user = request.user if request else None
+        return obj.user_has_access(user)
 
 
 class TagSerializer(serializers.ModelSerializer):

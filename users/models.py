@@ -11,7 +11,7 @@ from imagekit.models import ProcessedImageField
 from imagekit.processors import ResizeToFill
 
 import files.helpers as helpers
-from files.models import Category, Media, MediaPermission, Tag
+from files.models import Category, CategoryPurchase, Media, MediaPermission, MediaPurchase, Tag
 from rbac.models import RBACGroup
 
 
@@ -109,6 +109,26 @@ class User(AbstractUser):
         ret["user_media"] = f"/api/v1/media?author={self.username}"
         return ret
 
+    @property
+    def customer_media_ids(self):
+        stored_ids = getattr(self, "_customer_media_ids", frozenset())
+        if isinstance(stored_ids, (set, frozenset)):
+            return stored_ids
+        return frozenset()
+
+    @customer_media_ids.setter
+    def customer_media_ids(self, media_ids):
+        normalized = set()
+        if media_ids is not None:
+            for value in media_ids:
+                try:
+                    text_value = str(value).strip()
+                except Exception:  # pragma: no cover - defensive
+                    continue
+                if text_value:
+                    normalized.add(text_value)
+        self._customer_media_ids = frozenset(normalized)
+
     def save(self, *args, **kwargs):
         strip_text_items = ["name", "description", "title"]
         for item in strip_text_items:
@@ -149,6 +169,50 @@ class User(AbstractUser):
         ).exists()
 
         return media_permission_exists
+
+    def has_paid_access_to_category(self, category):
+        if not getattr(category, "payment_required", False):
+            return True
+
+        if category.user_id == self.id or self.is_superuser or self.is_editor or self.is_manager:
+            return True
+
+        customer_media_ids = self.customer_media_ids
+        if customer_media_ids:
+            numeric_ids = {int(value) for value in customer_media_ids if value.isdigit()}
+            token_ids = {value for value in customer_media_ids if not value.isdigit()}
+
+            media_qs = Media.objects.filter(category=category)
+            if numeric_ids and media_qs.filter(id__in=numeric_ids).exists():
+                return True
+            if token_ids and media_qs.filter(friendly_token__in=token_ids).exists():
+                return True
+
+        return CategoryPurchase.objects.filter(user=self, category=category).exists()
+
+    def has_paid_access_to_media(self, media):
+        if not getattr(media, "payment_required", False):
+            return True
+
+        if media.user_id == self.id or self.is_superuser or self.is_editor or self.is_manager:
+            return True
+
+        customer_media_ids = self.customer_media_ids
+        if customer_media_ids:
+            media_identifier = str(media.id)
+            if media_identifier in customer_media_ids:
+                return True
+            if media.friendly_token and media.friendly_token in customer_media_ids:
+                return True
+
+        if MediaPurchase.objects.filter(user=self, media=media).exists():
+            return True
+
+        category_ids = media.category.filter(requires_payment=True).values_list("id", flat=True)
+        if category_ids and CategoryPurchase.objects.filter(user=self, category_id__in=category_ids).exists():
+            return True
+
+        return False
 
     def has_contributor_access_to_media(self, media):
         # First check if user is the owner
